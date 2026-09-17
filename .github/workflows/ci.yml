@@ -1,0 +1,72 @@
+name: CI
+
+on:
+  # Pull requests cover branch work. Limiting `push` to the default branch
+  # keeps a branch that already has a PR open from running the whole suite
+  # twice for one commit, and still checks main after a merge.
+  push:
+    branches: [main]
+  pull_request:
+
+# A newer commit makes an in-flight run irrelevant, so stop paying for it.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Typecheck and build
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+
+      - run: npm ci
+
+      - name: Typecheck
+        run: npx tsc --noEmit
+
+      # No Supabase or Anthropic credentials are needed to build: every page
+      # that touches them is server-rendered on demand, and the env is read at
+      # request time rather than at build time.
+      - name: Build
+        run: npx next build
+
+  database:
+    name: Schema, seed and RLS policies
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: grantboard_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      PGHOST: localhost
+      PGPORT: "5432"
+      PGUSER: postgres
+      PGPASSWORD: postgres
+      PGDATABASE: grantboard_test
+
+    steps:
+      - uses: actions/checkout@v5
+
+      # Applies the schema and seed, then asserts what each role can and cannot
+      # do. "Enforced by RLS, not UI checks" is a claim about access control,
+      # and this is what re-checks it on every push.
+      - name: Run schema, seed and policy tests
+        run: ./supabase/tests/run.sh
