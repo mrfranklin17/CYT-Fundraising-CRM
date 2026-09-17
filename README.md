@@ -32,17 +32,21 @@ Everything below is done in the browser. There is no local development step.
    you will not need it for this app, but you will want it eventually.
 3. Wait for the project to finish provisioning, about two minutes.
 
-## 2. Run the migration
+## 2. Run the migrations
 
 1. In the Supabase dashboard, open **SQL Editor** in the left sidebar.
 2. Click **New query**.
-3. Open `supabase/migrations/0001_init.sql` in this repository, copy the whole
-   file, and paste it into the editor.
-4. Click **Run**.
+3. Run every file in `supabase/migrations/` **in filename order**, one at a
+   time — currently `0001_init.sql` then `0002_harden_function_grants.sql`.
+   Copy the whole file, paste, click **Run**.
 
-You should see `Success. No rows returned`. This creates every table, the three
-roles, the row-level security policies, and the trigger that turns an invite
-into a membership.
+Each should report `Success. No rows returned`. `0001` creates every table, the
+three roles, the row-level security policies, and the trigger that turns an
+invite into a membership. `0002` tightens function privileges — see the comment
+at the top of that file for why it is a separate step and why it matters.
+
+Migrations run **once**, in order. Do not re-run `0001` against a database that
+already has it.
 
 ## 3. Run the seed
 
@@ -178,6 +182,12 @@ to re-run. `GRANTBOARD_KEEP_DB=1` leaves the database behind if you want to
 inspect a failure.
 
 These tests are not run against your real Supabase project and never touch it.
+
+The harness deliberately replicates Supabase's default privileges (which grant
+`EXECUTE` on new `public` functions to `anon` and `authenticated`). That detail
+is load-bearing: without it the privilege assertions pass vacuously while a real
+project stays exposed, which is exactly how the gap that `0002` fixes was missed
+locally and caught later by Supabase's own linter.
 
 ## Two things this app will not do
 

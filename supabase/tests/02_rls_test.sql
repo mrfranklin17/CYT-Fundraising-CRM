@@ -361,5 +361,85 @@ begin
 end;
 $$;
 
+-- ---------------------------------------------------------------------------
+-- Function privileges
+--
+-- These assertions only mean something because 00_harness.sql replicates
+-- Supabase's default privileges. Remove that line and these pass trivially
+-- while production stays exposed.
+-- ---------------------------------------------------------------------------
+
+\echo '== function privileges =='
+
+do $$
+begin
+  -- The SECURITY DEFINER helpers run with the definer's rights, so an
+  -- unauthenticated caller must not be able to invoke them over the REST API.
+  perform test_assert(
+    not has_function_privilege('anon', 'public.has_org_access(uuid)', 'execute'),
+    'anon CANNOT execute has_org_access');
+  perform test_assert(
+    not has_function_privilege('anon', 'public.has_org_role(uuid, public.org_role[])', 'execute'),
+    'anon CANNOT execute has_org_role');
+
+  -- ...but signed-in users must keep it, because every RLS policy calls these
+  -- and a policy is evaluated as the calling role. Revoking would deny the app.
+  perform test_assert(
+    has_function_privilege('authenticated', 'public.has_org_access(uuid)', 'execute'),
+    'authenticated CAN execute has_org_access (every policy depends on it)');
+  perform test_assert(
+    has_function_privilege('authenticated', 'public.has_org_role(uuid, public.org_role[])', 'execute'),
+    'authenticated CAN execute has_org_role (every policy depends on it)');
+
+  -- Trigger functions are fired by the system; no client role needs EXECUTE.
+  perform test_assert(
+    not has_function_privilege('anon', 'public.accept_invites_for_new_user()', 'execute')
+    and not has_function_privilege('authenticated', 'public.accept_invites_for_new_user()', 'execute'),
+    'no client role can execute the invite trigger function directly');
+  perform test_assert(
+    not has_function_privilege('anon', 'public.touch_updated_at()', 'execute')
+    and not has_function_privilege('authenticated', 'public.touch_updated_at()', 'execute'),
+    'no client role can execute touch_updated_at directly');
+  perform test_assert(
+    not has_function_privilege('anon', 'public.mark_answer_provenance()', 'execute')
+    and not has_function_privilege('authenticated', 'public.mark_answer_provenance()', 'execute'),
+    'no client role can execute mark_answer_provenance directly');
+
+  -- search_path pinned on every function we define.
+  perform test_assert(
+    not exists (
+      select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+      where n.nspname = 'public'
+        and p.proname in ('has_org_access','has_org_role','accept_invites_for_new_user',
+                          'touch_updated_at','mark_answer_provenance')
+        and p.proconfig is null
+    ),
+    'every Grantboard function pins its search_path');
+end;
+$$;
+
+-- Revoking EXECUTE must not stop the triggers firing. This is the check that
+-- makes the revocations above safe rather than merely quiet.
+do $$
+declare
+  current_source public.answer_source;
+begin
+  perform act_as('aaaaaaaa-0000-4000-8000-000000000002');
+
+  update public.application_questions
+     set answer = 'Stamped by the endpoint.', source = 'ai_draft', drafted_at = now()
+   where id = '44444444-4444-4444-8444-444444444401';
+  update public.application_questions
+     set answer = 'Then edited by a person.'
+   where id = '44444444-4444-4444-8444-444444444401';
+
+  select source into current_source from public.application_questions
+   where id = '44444444-4444-4444-8444-444444444401';
+
+  perform test_assert(current_source = 'human',
+    'the provenance trigger still fires after EXECUTE is revoked');
+end;
+$$;
+
 \echo ''
 \echo 'All row-level security tests passed.'
