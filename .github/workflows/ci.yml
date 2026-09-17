@@ -1,9 +1,17 @@
 name: CI
 
 on:
+  # Pull requests cover branch work. Limiting `push` to the default branch
+  # keeps a branch that already has a PR open from running the whole suite
+  # twice for one commit, and still checks main after a merge.
   push:
-    branches: ["**"]
+    branches: [main]
   pull_request:
+
+# A newer commit makes an in-flight run irrelevant, so stop paying for it.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   build:
@@ -11,7 +19,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - uses: actions/setup-node@v4
         with:
@@ -55,7 +63,7 @@ jobs:
       PGDATABASE: grantboard_test
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       # Applies the schema and seed, then asserts what each role can and cannot
       # do. "Enforced by RLS, not UI checks" is a claim about access control,
