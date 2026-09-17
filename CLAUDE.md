@@ -44,7 +44,9 @@ Three roles, as a Postgres enum (`org_role`):
 
 Enforced by RLS policies, not UI checks. The UI hides buttons as a courtesy;
 the database is what stops a board member from writing a draft by calling
-PostgREST directly. If you add a table, add its policies in the same migration.
+PostgREST directly. If you add a table, add its policies in the same migration
+— and add a test for them in `supabase/tests/02_rls_test.sql`. A policy with no
+test is a claim nobody re-checks; CI runs that file on every push.
 
 Policies use two `SECURITY DEFINER` helpers, `has_org_access(org_id)` and
 `has_org_role(org_id, roles[])`. They exist so that a policy on `memberships`
@@ -67,10 +69,15 @@ to the text is a person typing, so the row becomes `human`. Text that has not
 changed cannot be relabeled at all.
 
 The point is that nobody should be able to submit words nobody has read.
-Preserve that property. Tested cases, all passing: a fresh draft marks
-`ai_draft`; a human edit flips to `human`; re-drafting an existing draft stays
-`ai_draft`; a client cannot relabel reviewed prose as a draft; a client cannot
-claim `ai_draft` for text it typed itself.
+Preserve that property. The cases are covered in `supabase/tests/02_rls_test.sql`:
+a fresh draft marks `ai_draft`; a human edit flips to `human`; re-drafting an
+existing draft stays `ai_draft`; a client cannot relabel reviewed prose as a
+draft; a client cannot claim `ai_draft` for text it typed itself; blanking an
+answer returns it to `empty`.
+
+The re-draft case is there because the first version of this trigger got it
+wrong and marked unread machine text as human-reviewed. If you change the
+trigger, that test is the one to watch.
 
 ## Drafting
 
@@ -120,6 +127,9 @@ feature.
 - Draft editor: per-question drafting, draft-all-blanks, text export
 - Answer library, editable by staff
 - `POST /api/draft`
+- CI (`.github/workflows/ci.yml`): typecheck + build, and a Postgres job that
+  applies the migration and seed to a throwaway database and asserts the
+  policies (`supabase/tests/`, or `npm run test:db` locally)
 
 ## Not built
 

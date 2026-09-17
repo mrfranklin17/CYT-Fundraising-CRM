@@ -152,6 +152,33 @@ cp .env.example .env.local   # then fill in the three values
 npm run dev
 ```
 
+## Tests
+
+CI runs on every push and pull request (`.github/workflows/ci.yml`), in two jobs:
+
+- **Typecheck and build** — `tsc --noEmit` and `next build`
+- **Schema, seed and RLS policies** — applies the migration and seed to a
+  throwaway Postgres, then asserts what each role can and cannot do
+
+The second job is the one worth knowing about. "Enforced by row-level security,
+not UI checks" is a claim about access control, and this is what re-checks it:
+it acts as a real board, staff and admin user and asserts, among other things,
+that a board account cannot write a draft, that another organization's rows are
+invisible even when the exact id is known, and that an answer edited by a person
+cannot stay labelled as an unread machine draft.
+
+To run it against your own Postgres:
+
+```bash
+npm run test:db     # uses the standard PGHOST/PGPORT/PGUSER/PGPASSWORD vars
+```
+
+The runner creates and drops its own scratch database each time, so it is safe
+to re-run. `GRANTBOARD_KEEP_DB=1` leaves the database behind if you want to
+inspect a failure.
+
+These tests are not run against your real Supabase project and never touch it.
+
 ## Two things this app will not do
 
 **It will not submit anything.** Submittable, Foundant, Fluxx and Grants.gov
