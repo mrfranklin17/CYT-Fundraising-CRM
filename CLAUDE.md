@@ -58,6 +58,25 @@ There is no service-role client anywhere in this codebase, deliberately. Every
 server-side query runs under the signed-in user's own RLS context. If something
 seems to need a service key, the policy is wrong — fix the policy.
 
+## Keep the test harness faithful to Supabase
+
+`supabase/tests/00_harness.sql` stands in for the parts of a Supabase project
+the migrations depend on. Anywhere it is *more restrictive* than the real
+platform, the suite passes while production is exposed.
+
+This is not hypothetical. Supabase applies default privileges granting `EXECUTE`
+on every new `public` function to `anon` and `authenticated`. `0001`'s
+`revoke all ... from public` does not undo that, because revoking from PUBLIC
+leaves an explicit per-role grant in place — so the SECURITY DEFINER helpers
+shipped callable by `anon`. The harness had no such default privileges, so the
+suite showed clean; Supabase's own linter caught it against a live project.
+`0002_harden_function_grants.sql` is the fix, and the harness now replicates the
+default privileges so the assertions actually bite.
+
+When you add something to the harness, ask which direction the inaccuracy runs.
+Too permissive produces false alarms you will notice. Too restrictive produces
+silence you will not.
+
 ## Answer provenance
 
 `application_questions.source` is `empty`, `ai_draft`, or `human`.
@@ -119,6 +138,7 @@ feature.
 
 - Schema, RLS policies, invite trigger, provenance trigger
   (`supabase/migrations/0001_init.sql`)
+- Function privilege hardening (`supabase/migrations/0002_harden_function_grants.sql`)
 - Seed data, all real and sourced (`supabase/seed.sql`)
 - Magic-link auth, session-refreshing middleware, friendly no-membership screen
 - Callboard with counts, unverified banner, deadline-ordered strips

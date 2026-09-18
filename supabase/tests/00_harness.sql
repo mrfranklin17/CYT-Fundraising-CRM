@@ -26,6 +26,15 @@ $$;
 
 grant anon, authenticated, service_role to current_user;
 
+-- Supabase applies default privileges granting EXECUTE on every new function in
+-- `public` to anon and authenticated. Replicate that here.
+--
+-- Without this line the harness is MORE RESTRICTIVE than production, which hides
+-- real bugs rather than catching them: migration 0002 exists because a grant that
+-- only appears under these default privileges went unnoticed locally and was
+-- caught by Supabase's linter against a live project instead.
+alter default privileges in schema public grant execute on functions to anon, authenticated;
+
 create schema if not exists auth;
 
 create table if not exists auth.users (

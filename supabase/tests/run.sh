@@ -48,8 +48,11 @@ admin_sql "create database \"$SCRATCH_DB\";" >/dev/null
 echo "==> Supabase-shaped test harness"
 scratch_file "$HERE/00_harness.sql"
 
-echo "==> Migration"
-scratch_file "$ROOT/supabase/migrations/0001_init.sql"
+# Every migration, in filename order, so a new one is covered automatically.
+for migration in "$ROOT"/supabase/migrations/*.sql; do
+  echo "==> Migration: $(basename "$migration")"
+  scratch_file "$migration"
+done
 
 echo "==> Seed"
 scratch_file "$ROOT/supabase/seed.sql"
