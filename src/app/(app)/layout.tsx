@@ -25,12 +25,26 @@ export default async function AppLayout({
 
       <header className="masthead">
         <div className="wrap masthead-inner">
-          {/* Wordmark only — see CLAUDE.md. The CYT logo belongs to CYT
-              National; .logo-slot is where an approved file gets dropped in. */}
+          {/* The org's own logo, from its `orgs` row — supplied by them, never
+              redrawn here. See CLAUDE.md on the CYT mark. Orgs without a logo
+              fall back to the lettered slot. */}
           <Link href="/" className="wordmark">
-            <span className="logo-slot" aria-hidden="true">
-              <span>GB</span>
-            </span>
+            {session.orgLogoUrl ? (
+              // Deliberately a plain <img>: these are small, already sized
+              // assets, and next/image would pull in the optimizer (and sharp)
+              // for no benefit here.
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                className="org-logo"
+                src={session.orgLogoUrl}
+                alt={session.orgLogoAlt ?? session.orgName}
+              />
+            ) : (
+              <span className="logo-slot" aria-hidden="true">
+                <span>GB</span>
+              </span>
+            )}
+            <span className="wordmark-rule" aria-hidden="true" />
             <span className="wordmark-text">
               <b>Grantboard</b>
               <small>{session.orgName}</small>
