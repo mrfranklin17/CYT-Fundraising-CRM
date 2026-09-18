@@ -95,8 +95,36 @@ second run changes nothing.
    must never gain that prefix — that would ship your billable key to every
    visitor's browser.
 
-4. Deploy, then go back to step 4 and make sure the Site URL matches the URL
+4. **Set the two `NEXT_PUBLIC_` variables to type `Config`, not `Secret`.**
+   This one is easy to get wrong and the failure is confusing.
+
+   Vercel's newer variable types are not interchangeable. `Secret` values are
+   write-only and injected at *runtime*. But `NEXT_PUBLIC_*` variables have to
+   exist at *build* time, because Next.js inlines them into the bundle during
+   `next build` rather than reading them per request. Marked `Secret`, they are
+   simply absent when the build runs, `process.env.NEXT_PUBLIC_SUPABASE_URL`
+   compiles to `undefined`, and every page fails with:
+
+   > Application error: a server-side exception has occurred
+
+   The runtime logs show the real message — "Supabase is not configured" — which
+   is misleading, because the variables genuinely exist in project settings. The
+   type is what is wrong. Vercel flags this with a small warning icon next to the
+   variable name.
+
+   `ANTHROPIC_API_KEY` should stay `Secret`. It is server-only and never inlined.
+
+   Note that Vercel's import flow may pre-create these three names from
+   `.env.example` and default them all to `Secret`. If you did not add them
+   yourself, assume the values are placeholders and replace them.
+
+5. Deploy, then go back to step 4 and make sure the Site URL matches the URL
    Vercel actually gave you.
+
+   **After changing any environment variable, redeploy with "Use existing Build
+   Cache" unticked.** Vercel does not apply new variables to an existing
+   deployment, and a cached build can carry the old inlined `undefined` straight
+   through.
 
 ## 6. Make yourself an admin
 
