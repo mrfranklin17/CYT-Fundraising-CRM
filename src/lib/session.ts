@@ -13,6 +13,13 @@ export type Session = {
   email: string | null;
   orgId: string;
   orgName: string;
+  /**
+   * Reversed (light-on-transparent) logo for the dark masthead, or null to
+   * fall back to the Grantboard wordmark. Lives on the org row rather than in
+   * the markup so a second organization brings its own.
+   */
+  orgLogoUrl: string | null;
+  orgLogoAlt: string | null;
   role: OrgRole;
 };
 
@@ -34,7 +41,7 @@ export async function requireSession(): Promise<Session> {
 
   const { data, error } = await supabase
     .from("memberships")
-    .select("org_id, role, orgs(id, name, slug)")
+    .select("org_id, role, orgs(id, name, slug, logo_url, logo_alt)")
     .eq("user_id", user.id)
     .order("created_at", { ascending: true })
     .limit(1)
@@ -43,13 +50,21 @@ export async function requireSession(): Promise<Session> {
   if (error) throw error;
   if (!data) redirect("/no-access");
 
-  const org = data.orgs as unknown as { id: string; name: string; slug: string } | null;
+  const org = data.orgs as unknown as {
+    id: string;
+    name: string;
+    slug: string;
+    logo_url: string | null;
+    logo_alt: string | null;
+  } | null;
 
   return {
     userId: user.id,
     email: user.email ?? null,
     orgId: data.org_id,
     orgName: org?.name ?? "Your organization",
+    orgLogoUrl: org?.logo_url ?? null,
+    orgLogoAlt: org?.logo_alt ?? null,
     role: data.role as OrgRole,
   };
 }

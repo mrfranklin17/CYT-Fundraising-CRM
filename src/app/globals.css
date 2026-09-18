@@ -5,30 +5,52 @@
    ========================================================================== */
 
 :root {
-  /* Core palette */
-  --house-blue: #1b1f3b;
-  --brass: #c08a2e;
-  --curtain: #9b2f35;
-  --paper: #f6f5f2;
+  /* ------------------------------------------------------------------
+     BRAND — CYT Spokane
+     Sampled from cytspokane.org. Azure is the identity: it carries the
+     nav bar and every heading on their site, so it carries the masthead,
+     links and focus ring here.
+     ------------------------------------------------------------------ */
+  --brand: #0e7cc0;
+  --brand-deep: #0a5e92;
+  --brand-bright: #2cb6e4;
+
+  /* CYT also uses a lemon yellow and a magenta in their marketing. Neither
+     is used as UI chrome here, and the yellow is deliberately avoided: it
+     is close enough to the "estimated date" amber below that the two would
+     stop reading as different things. Brand colour must not overwrite a
+     signal the board relies on to know what is urgent. */
+
+  --paper: #f5f8fa;
+
+  /* ------------------------------------------------------------------
+     SEMANTIC — these are signals, not decoration, and stay distinct from
+     the brand palette on purpose.
+       red    closing soon
+       amber  deadline is estimated, not confirmed
+       green  verified against the funder's page
+     ------------------------------------------------------------------ */
+  --brass: #b5811f;
+  --curtain: #c0392f;
 
   /* Derived surfaces */
-  --ink: #1b1f3b;
-  --ink-soft: #4b5068;
-  --ink-faint: #767b90;
+  --ink: #132840;
+  --ink-soft: #46586c;
+  --ink-faint: #75849a;
   --bg: var(--paper);
   --surface: #ffffff;
-  --surface-sunk: #efeee9;
-  --rule: #dcdad2;
-  --rule-strong: #c6c3b8;
+  --surface-sunk: #eaf1f6;
+  --rule: #d5e1ea;
+  --rule-strong: #b9cbd9;
 
   --brass-ink: #8a6117;
-  --brass-wash: #f7eeda;
-  --curtain-ink: #8c2a30;
-  --curtain-wash: #f8e9e9;
-  --stage-green: #2f6b4f;
-  --stage-green-wash: #e5f0ea;
+  --brass-wash: #fbf0d8;
+  --curtain-ink: #a32a22;
+  --curtain-wash: #fbe9e7;
+  --stage-green: #2f7d57;
+  --stage-green-wash: #e3f2ea;
 
-  --focus: #2f6bd8;
+  --focus: var(--brand);
 
   --font-display: "Fraunces", "Iowan Old Style", Georgia, serif;
   --font-ui: "Instrument Sans", ui-sans-serif, system-ui, -apple-system,
@@ -42,27 +64,33 @@
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --house-blue: #10132a;
-    --ink: #edecea;
-    --ink-soft: #b3b6c4;
-    --ink-faint: #878b9c;
-    --bg: #12152b;
-    --surface: #1a1e3a;
-    --surface-sunk: #151834;
-    --rule: #2c3157;
-    --rule-strong: #3b4170;
+    /* The masthead stays deep so CYT's reversed (white) logo reads on it in
+       both themes — that file is the only version we have, and it is
+       invisible on anything light. */
+    --brand: #0d6ba6;
+    --brand-deep: #0a5580;
+    --brand-bright: #4cc4ee;
+
+    --ink: #e8eef4;
+    --ink-soft: #aebecd;
+    --ink-faint: #7f91a3;
+    --bg: #0f1a24;
+    --surface: #16242f;
+    --surface-sunk: #121e28;
+    --rule: #263946;
+    --rule-strong: #354c5c;
 
     --brass: #d9a445;
     --brass-ink: #e8be74;
     --brass-wash: #2b2617;
-    --curtain: #c9555b;
-    --curtain-ink: #e08a8f;
-    --curtain-wash: #2f1c20;
-    --stage-green: #62b48d;
-    --stage-green-wash: #172c25;
-    --paper: #12152b;
+    --curtain: #e0655a;
+    --curtain-ink: #f0918a;
+    --curtain-wash: #2f1c1a;
+    --stage-green: #5cb98a;
+    --stage-green-wash: #152b22;
+    --paper: #0f1a24;
 
-    --focus: #7aa7ff;
+    --focus: #58b6e8;
     --shadow-lift: 0 1px 2px rgba(0, 0, 0, 0.4), 0 6px 16px rgba(0, 0, 0, 0.3);
   }
 }
@@ -172,7 +200,7 @@ main.wrap {
    -------------------------------------------------------------------------- */
 
 .masthead {
-  background: var(--house-blue);
+  background: var(--brand);
   color: #f3f1ec;
   border-bottom: 3px solid var(--brass);
 }
@@ -186,34 +214,53 @@ main.wrap {
   padding-bottom: 0.85rem;
 }
 
-/* Wordmark only. The CYT logo is trademarked by CYT National and Spokane is a
-   licensed affiliate, so we do not reproduce it. `.logo-slot` is the hook for
-   dropping in an approved file later. */
+/* The organization's own logo, supplied by them and served from its `orgs`
+   row — never redrawn here. The CYT mark is trademarked by CYT National and
+   Spokane is a licensed affiliate; we display the file they provide and
+   nothing else. An org with no logo falls back to `.logo-slot`. */
 .wordmark {
   display: flex;
   align-items: center;
-  gap: 0.6rem;
+  gap: 0.7rem;
   text-decoration: none;
   color: inherit;
   margin-right: auto;
 }
 
+.org-logo {
+  height: 2rem;
+  width: auto;
+  max-width: 11rem;
+  flex: none;
+  display: block;
+}
+
+/* Separates the organization's mark from the product name, so the masthead
+   reads as "CYT Spokane's Grantboard" rather than one combined lockup. */
+.wordmark-rule {
+  width: 1px;
+  height: 1.75rem;
+  flex: none;
+  background: rgba(255, 255, 255, 0.3);
+}
+
+/* Fallback when an org has supplied no logo. */
 .logo-slot {
   width: 2rem;
   height: 2rem;
   flex: none;
-  border: 1px solid rgba(192, 138, 46, 0.55);
+  border: 1px solid rgba(255, 255, 255, 0.45);
   border-radius: 2px;
   display: grid;
   place-items: center;
-  background: rgba(192, 138, 46, 0.12);
+  background: rgba(255, 255, 255, 0.14);
 }
 
 .logo-slot span {
   font-family: var(--font-display);
   font-size: 0.85rem;
   font-weight: 700;
-  color: var(--brass);
+  color: #fff;
   letter-spacing: 0.02em;
 }
 
@@ -340,7 +387,7 @@ main.wrap {
 .count {
   background: var(--surface);
   border: 1px solid var(--rule);
-  border-top: 3px solid var(--house-blue);
+  border-top: 3px solid var(--brand);
   border-radius: var(--radius);
   padding: 0.9rem 1rem;
 }
@@ -584,7 +631,7 @@ main.wrap {
 }
 
 .banner--info {
-  border-left-color: var(--house-blue);
+  border-left-color: var(--brand);
 }
 
 .banner--error {
@@ -638,7 +685,7 @@ main.wrap {
   font-size: 1.02rem;
   line-height: 1.55;
   background: var(--surface-sunk);
-  border-left: 4px solid var(--house-blue);
+  border-left: 4px solid var(--brand);
   border-radius: 0 var(--radius) var(--radius) 0;
   padding: 1rem 1.1rem;
   margin: 0;
@@ -828,8 +875,8 @@ textarea {
   letter-spacing: 0.01em;
   padding: 0.5rem 0.9rem;
   border-radius: var(--radius);
-  border: 1px solid var(--house-blue);
-  background: var(--house-blue);
+  border: 1px solid var(--brand);
+  background: var(--brand);
   color: #f6f5f2;
   cursor: pointer;
   text-decoration: none;
@@ -837,7 +884,7 @@ textarea {
 }
 
 .btn:hover {
-  background: #262b4f;
+  background: var(--brand-deep);
 }
 
 .btn:disabled {
