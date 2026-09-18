@@ -14,7 +14,7 @@
     "@anthropic-ai/sdk": "^0.69.0",
     "@supabase/ssr": "^0.7.0",
     "@supabase/supabase-js": "^2.58.0",
-    "next": "15.5.4",
+    "next": "^15.5.25",
     "react": "19.1.1",
     "react-dom": "19.1.1"
   },
