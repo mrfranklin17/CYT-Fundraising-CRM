@@ -165,6 +165,119 @@ matching is case-insensitive.
 
 ---
 
+## 8. The weekly funder-page watcher (optional)
+
+Deadlines in this app go stale quietly. A funder moves their page, the date you
+recorded last year stops being true, and nothing tells you — because nobody
+re-reads a page without a reason to.
+
+The watcher is that reason. Once a week it fetches the URL behind each tracked
+opportunity, compares the page's text to what it saw last time, and flags the
+ones that changed. **It does not read the page.** It cannot tell you what
+changed or what the new deadline is; it can only tell you to go look. That
+restriction is deliberate and it is enforced in the database, not just in the
+code — see "What the watcher cannot do" below.
+
+It is entirely optional. Skip this section and the rest of the app works
+exactly as before.
+
+### Create the machine account
+
+The watcher signs in as a normal Supabase user. In **Authentication → Users →
+Add user**, create one with a real address you control and a long random
+password. Tick *Auto Confirm User* so it never needs to click an email link.
+
+Then register it as a watch agent — note that it gets **no membership**:
+
+```sql
+insert into public.watch_agents (user_id, org_id, label)
+values (
+  (select id from auth.users where email = 'watcher@yourdomain.org'),
+  (select id from public.orgs where slug = 'cyt-spokane'),
+  'Weekly funder page watcher'
+);
+```
+
+### Add the secrets
+
+Generate a shared secret:
+
+```bash
+openssl rand -hex 32
+```
+
+In **Vercel → Settings → Environment Variables**, add three. All three are
+server-side only, so unlike the `NEXT_PUBLIC_*` pair these may be type *Secret*:
+
+| Name | Value |
+|---|---|
+| `CRON_SECRET` | the random string you just generated |
+| `WATCH_AGENT_EMAIL` | the machine account's address |
+| `WATCH_AGENT_PASSWORD` | its password |
+
+Redeploy so the new variables are picked up.
+
+In **GitHub → Settings → Secrets and variables → Actions**, add two:
+
+| Name | Value |
+|---|---|
+| `CRON_SECRET` | the same random string |
+| `WATCH_ENDPOINT_URL` | `https://your-app.vercel.app/api/cron/scan` |
+
+### Run it
+
+`.github/workflows/watch.yml` runs Mondays at 15:00 UTC — 8am Pacific in
+summer, 7am in winter. To run it immediately, go to **Actions → Watch funder
+pages → Run workflow**. The run summary reports how many pages were checked,
+how many changed, and how many could not be fetched.
+
+The first run records a baseline for every page and reports no changes, because
+there is nothing yet to compare against. Real findings start the week after.
+
+### What you will see
+
+A changed page raises a banner on the callboard and on that opportunity, in
+brass — the same colour as an estimated date, because it makes the same claim:
+*something here has not been checked by a person.* Staff clear it with
+**I've re-read the page**.
+
+Clearing it records only that someone looked. It deliberately does not mark the
+record verified or confirm the deadline — those are the separate Verify action,
+which asks explicitly. "I glanced at the page" and "I confirmed this date" are
+different statements and the app keeps them apart.
+
+### What the watcher cannot do
+
+The machine account has no membership, so the existing policies stop it without
+anyone having to trust the code:
+
+- It **cannot set `verified`**, move a deadline, or edit eligibility text —
+  `opportunities_update` requires a membership it does not have.
+- It **cannot create an opportunity**.
+- It **cannot read** applications, drafts, 990 figures, contacts or the answer
+  library — every one of those policies asks for a membership too.
+- It **cannot clear its own flag**. A watcher that could acknowledge its own
+  finding would look identical to one that never raised it, so a trigger
+  refuses the write.
+
+All of that is asserted in `supabase/tests/02_rls_test.sql`, and the assertion
+that matters most is named after the reason it exists: *the watcher CANNOT set
+verified, which is the whole point of it.*
+
+### Its limits, honestly
+
+- It compares **text**, so a funder who rewrites their boilerplate, rotates a
+  quotation or adds a news item will flag as changed with no grant news at all.
+  False positives are the intended failure direction: a watcher that misses a
+  real change is worse than one that occasionally wastes a click.
+- It **cannot see pages that render in JavaScript**. Those return almost no
+  readable text, and rather than hash an empty page forever and report a
+  reassuring "unchanged", it records an error asking you to check by hand.
+- It only watches opportunities that **have a URL**. One without a URL is
+  invisible to it, and says so on the opportunity page.
+
+---
+
 ## The three roles
 
 | Role | Can do |

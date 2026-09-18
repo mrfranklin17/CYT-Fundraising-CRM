@@ -1,0 +1,101 @@
+name: Watch funder pages
+
+# Re-fetches the funder pages behind tracked opportunities and records which
+# ones changed, so a stale deadline becomes a to-do instead of a surprise.
+#
+# The work happens in the app (POST /api/cron/scan), under the watch agent's own
+# RLS context. This workflow only decides *when*, which keeps the scheduler
+# swappable: pointing Vercel Cron or anything else at the same endpoint would
+# work identically.
+
+on:
+  schedule:
+    # Mondays at 15:00 UTC — 8am Pacific in summer, 7am in winter. Monday
+    # morning so that anything needing a human lands at the start of a working
+    # week rather than the end of one.
+    #
+    # GitHub's scheduler is best-effort and can run late under load, which is
+    # fine here: this job is idempotent and nothing depends on the exact minute.
+    - cron: "0 15 * * 1"
+
+  # So a person can run it on demand — after adding a funder, or to check that
+  # the watcher still works, without waiting a week to find out.
+  workflow_dispatch:
+    inputs:
+      limit:
+        description: "Maximum pages to check in this run"
+        required: false
+        default: "25"
+
+concurrency:
+  group: watch-funder-pages
+  cancel-in-progress: false
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Request a scan
+        id: scan
+        env:
+          # Full URL of the deployed endpoint, e.g.
+          # https://your-app.vercel.app/api/cron/scan
+          ENDPOINT: ${{ secrets.WATCH_ENDPOINT_URL }}
+          # Must match CRON_SECRET in the Vercel project settings.
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          LIMIT: ${{ github.event.inputs.limit || '25' }}
+        run: |
+          set -euo pipefail
+
+          if [ -z "${ENDPOINT:-}" ] || [ -z "${CRON_SECRET:-}" ]; then
+            echo "::error::Set the WATCH_ENDPOINT_URL and CRON_SECRET repository secrets."
+            exit 1
+          fi
+
+          # --fail-with-body so a non-2xx still prints what the server said;
+          # without it curl exits silently and the log shows nothing useful.
+          http_status=$(curl --silent --show-error --fail-with-body \
+            --max-time 300 \
+            --write-out '%{http_code}' \
+            --output response.json \
+            --request POST "${ENDPOINT}?limit=${LIMIT}" \
+            --header "Authorization: Bearer ${CRON_SECRET}" \
+            --header 'Content-Type: application/json' \
+            --data '{}') || {
+              echo "::error::The scan endpoint failed."
+              cat response.json 2>/dev/null || true
+              exit 1
+            }
+
+          echo "HTTP ${http_status}"
+          cat response.json
+
+          # Surface the headline numbers in the run summary so the outcome is
+          # readable without opening the log.
+          checked=$(jq -r '.checked // 0' response.json)
+          changed=$(jq -r '.changed // 0' response.json)
+          failed=$(jq -r '.failed // 0' response.json)
+
+          {
+            echo "### Funder page watch"
+            echo ""
+            echo "| | |"
+            echo "|---|---|"
+            echo "| Pages checked | ${checked} |"
+            echo "| **Changed — someone should re-read these** | **${changed}** |"
+            echo "| Could not be fetched | ${failed} |"
+            echo ""
+            if [ "${changed}" != "0" ] || [ "${failed}" != "0" ]; then
+              echo "Open Grantboard to see which ones."
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          # A page we could not fetch is a real signal — a grant program that
+          # moved is a deadline change in disguise — but it is not a reason to
+          # fail the run, because the run did its job and recorded it. Only a
+          # broken endpoint fails this workflow.
+          if [ "${failed}" != "0" ]; then
+            echo "::warning::${failed} page(s) could not be fetched. They are recorded in Grantboard."
+          fi

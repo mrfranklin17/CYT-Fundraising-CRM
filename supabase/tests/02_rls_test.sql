@@ -19,6 +19,7 @@
 \set u_staff  '''aaaaaaaa-0000-4000-8000-000000000002'''
 \set u_board  '''aaaaaaaa-0000-4000-8000-000000000003'''
 \set u_none   '''aaaaaaaa-0000-4000-8000-000000000009'''
+\set u_robot  '''aaaaaaaa-0000-4000-8000-00000000000a'''
 
 -- ---------------------------------------------------------------------------
 -- Fixtures
@@ -362,6 +363,211 @@ end;
 $$;
 
 -- ---------------------------------------------------------------------------
+-- The page watcher
+--
+-- A watch agent is a machine account with no membership. The point of these
+-- tests is the negative space: the watcher can read the URL list and write
+-- down what it fetched, and it can do nothing else. In particular it cannot
+-- set `verified`, which is the bit the standing rule protects.
+-- ---------------------------------------------------------------------------
+
+\echo '== page watcher =='
+
+-- The machine account, and an agent registration for CYT only.
+insert into auth.users (id, email) values
+  (:u_robot, 'watcher@example.org')
+on conflict (id) do nothing;
+
+insert into public.watch_agents (user_id, org_id, label) values
+  (:u_robot, :cyt, 'Weekly funder page watcher')
+on conflict (user_id, org_id) do nothing;
+
+-- An admin appoints agents; nobody else does.
+do $$
+begin
+  perform act_as('aaaaaaaa-0000-4000-8000-000000000002');
+  perform test_assert(
+    rejects($q$insert into public.watch_agents (user_id, org_id)
+               values ('aaaaaaaa-0000-4000-8000-000000000009',
+                       '11111111-1111-4111-8111-111111111111')$q$),
+    'staff CANNOT appoint a watch agent');
+
+  perform act_as('aaaaaaaa-0000-4000-8000-000000000003');
+  perform test_assert(
+    (select count(*) from public.watch_agents) = 1,
+    'board can see which machine accounts act for its org');
+end;
+$$;
+
+-- What the watcher can reach.
+do $$
+begin
+  perform act_as('aaaaaaaa-0000-4000-8000-00000000000a');
+
+  perform test_assert(
+    (select count(*) from public.opportunities
+      where org_id = '11111111-1111-4111-8111-111111111111') > 0,
+    'the watcher CAN read its org''s opportunities');
+
+  perform test_assert(
+    (select count(*) from public.opportunities
+      where org_id = '99999999-9999-4999-8999-999999999999') = 0,
+    'the watcher CANNOT read another org''s opportunities');
+
+  -- No membership means no access to anything a membership gates. These are
+  -- the tables a scraped-page job has no business seeing.
+  perform test_assert(
+    (select count(*) from public.applications) = 0,
+    'the watcher CANNOT read applications');
+  perform test_assert(
+    (select count(*) from public.application_questions) = 0,
+    'the watcher CANNOT read drafts');
+  perform test_assert(
+    (select count(*) from public.org_financials) = 0,
+    'the watcher CANNOT read the 990 history');
+  perform test_assert(
+    (select count(*) from public.answer_library) = 0,
+    'the watcher CANNOT read the answer library');
+  perform test_assert(
+    (select count(*) from public.contacts) = 0,
+    'the watcher CANNOT read contacts');
+end;
+$$;
+
+-- The load-bearing restriction: the watcher cannot touch an opportunity.
+do $$
+declare
+  before_verified boolean;
+  after_verified  boolean;
+  after_deadline  date;
+begin
+  perform act_as('aaaaaaaa-0000-4000-8000-000000000002');
+  update public.opportunities
+     set verified = false, deadline = '2026-03-01', deadline_estimated = true
+   where id = '22222222-2222-4222-8222-222222222201';
+
+  perform act_as('aaaaaaaa-0000-4000-8000-00000000000a');
+
+  select verified into before_verified from public.opportunities
+   where id = '22222222-2222-4222-8222-222222222201';
+
+  -- The tidying-up failure mode, attempted directly against the database.
+  update public.opportunities
+     set verified = true, verified_at = now(), deadline_estimated = false
+   where id = '22222222-2222-4222-8222-222222222201';
+
+  update public.opportunities
+     set deadline = '2026-09-30'
+   where id = '22222222-2222-4222-8222-222222222201';
+
+  select verified, deadline into after_verified, after_deadline
+    from public.opportunities
+   where id = '22222222-2222-4222-8222-222222222201';
+
+  perform test_assert(before_verified is false and after_verified is false,
+    'the watcher CANNOT set verified, which is the whole point of it');
+  perform test_assert(after_deadline = '2026-03-01',
+    'the watcher CANNOT move a deadline');
+
+  perform test_assert(
+    rejects($q$insert into public.opportunities (org_id, funder_name)
+               values ('11111111-1111-4111-8111-111111111111', 'Robot Funder')$q$),
+    'the watcher CANNOT add an opportunity');
+end;
+$$;
+
+-- What the watcher is for: recording that a page moved.
+do $$
+declare
+  changed_at timestamptz;
+begin
+  perform act_as('aaaaaaaa-0000-4000-8000-00000000000a');
+
+  insert into public.opportunity_watch
+    (opportunity_id, org_id, url, content_hash, content_length,
+     last_checked_at, last_changed_at, last_status)
+  values ('22222222-2222-4222-8222-222222222201',
+          '11111111-1111-4111-8111-111111111111',
+          'https://example.org/grant', 'hash-one', 1200, now(), now(), 200);
+
+  perform test_assert(
+    (select count(*) from public.opportunity_watch) = 1,
+    'the watcher CAN record an observation');
+
+  update public.opportunity_watch
+     set content_hash = 'hash-two', last_changed_at = now(), last_checked_at = now()
+   where opportunity_id = '22222222-2222-4222-8222-222222222201';
+
+  perform test_assert(
+    (select content_hash from public.opportunity_watch
+      where opportunity_id = '22222222-2222-4222-8222-222222222201') = 'hash-two',
+    'the watcher CAN update its own observation');
+
+  -- A watcher that could clear its own flag would look identical to one that
+  -- never raised it.
+  perform test_assert(
+    rejects($q$update public.opportunity_watch set acknowledged_at = now()
+                where opportunity_id = '22222222-2222-4222-8222-222222222201'$q$),
+    'the watcher CANNOT acknowledge its own finding');
+
+  perform test_assert(
+    rejects($q$insert into public.opportunity_watch
+                 (opportunity_id, org_id, url)
+               values ('88888888-8888-4888-8888-888888888888',
+                       '99999999-9999-4999-8999-999999999999',
+                       'https://example.org/other')$q$),
+    'the watcher CANNOT write an observation for another org');
+end;
+$$;
+
+-- The human half.
+do $$
+declare
+  ack timestamptz;
+begin
+  perform act_as('aaaaaaaa-0000-4000-8000-000000000003');
+
+  perform test_assert(
+    (select count(*) from public.opportunity_watch) = 1,
+    'board CAN see that a funder''s page changed');
+
+  update public.opportunity_watch
+     set acknowledged_at = now(), acknowledged_by = auth.uid()
+   where opportunity_id = '22222222-2222-4222-8222-222222222201';
+
+  perform test_assert(
+    (select acknowledged_at from public.opportunity_watch
+      where opportunity_id = '22222222-2222-4222-8222-222222222201') is null,
+    'board CANNOT acknowledge a change (board reads the pipeline)');
+
+  perform act_as('aaaaaaaa-0000-4000-8000-000000000002');
+
+  update public.opportunity_watch
+     set acknowledged_at = now(), acknowledged_by = auth.uid()
+   where opportunity_id = '22222222-2222-4222-8222-222222222201';
+
+  select acknowledged_at into ack from public.opportunity_watch
+   where opportunity_id = '22222222-2222-4222-8222-222222222201';
+
+  perform test_assert(ack is not null,
+    'staff CAN acknowledge, having re-read the page');
+
+  -- A person re-reads the page; they do not get to rewrite the fetch record.
+  perform test_assert(
+    rejects($q$update public.opportunity_watch set content_hash = 'forged'
+                where opportunity_id = '22222222-2222-4222-8222-222222222201'$q$),
+    'staff CANNOT rewrite what the watcher observed');
+
+  perform test_assert(
+    rejects($q$insert into public.opportunity_watch (opportunity_id, org_id, url)
+               values ('22222222-2222-4222-8222-222222222202',
+                       '11111111-1111-4111-8111-111111111111',
+                       'https://example.org/invented')$q$),
+    'staff CANNOT invent an observation nobody fetched');
+end;
+$$;
+
+-- ---------------------------------------------------------------------------
 -- Function privileges
 --
 -- These assertions only mean something because 00_harness.sql replicates
@@ -405,16 +611,79 @@ begin
     and not has_function_privilege('authenticated', 'public.mark_answer_provenance()', 'execute'),
     'no client role can execute mark_answer_provenance directly');
 
+  -- is_watch_agent decides whether a caller may write watch observations, so a
+  -- SECURITY DEFINER copy of it reachable without a session would let anyone
+  -- probe agent registration over PostgREST.
+  perform test_assert(
+    not has_function_privilege('anon', 'public.is_watch_agent(uuid)', 'execute'),
+    'anon CANNOT execute is_watch_agent');
+  perform test_assert(
+    has_function_privilege('authenticated', 'public.is_watch_agent(uuid)', 'execute'),
+    'authenticated CAN execute is_watch_agent (the watch policies depend on it)');
+  perform test_assert(
+    not has_function_privilege('anon', 'public.enforce_watch_write_scope()', 'execute')
+    and not has_function_privilege('authenticated', 'public.enforce_watch_write_scope()', 'execute'),
+    'no client role can execute enforce_watch_write_scope directly');
+
   -- search_path pinned on every function we define.
   perform test_assert(
     not exists (
       select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
       where n.nspname = 'public'
         and p.proname in ('has_org_access','has_org_role','accept_invites_for_new_user',
-                          'touch_updated_at','mark_answer_provenance')
+                          'touch_updated_at','mark_answer_provenance',
+                          'is_watch_agent','enforce_watch_write_scope')
         and p.proconfig is null
     ),
     'every Grantboard function pins its search_path');
+end;
+$$;
+
+-- ---------------------------------------------------------------------------
+-- Table privileges
+--
+-- Same reasoning, one layer down, and the same dependency on the harness:
+-- these assertions are only meaningful because 00_harness.sql replicates
+-- Supabase's default privileges for TABLES. Drop that line and every one of
+-- them passes without testing anything, because the harness would then show
+-- the grants 0001 wrote rather than the grants the project has.
+-- ---------------------------------------------------------------------------
+
+\echo '== table privileges =='
+
+do $$
+begin
+  perform test_assert(
+    not exists (
+      select 1 from information_schema.table_privileges
+      where grantee = 'anon' and table_schema = 'public'
+    ),
+    'anon holds no privilege on any table (this app has no public surface)');
+
+  -- TRUNCATE is not subject to row-level security, so a grant of it is not
+  -- something a policy can contain.
+  perform test_assert(
+    not exists (
+      select 1 from information_schema.table_privileges
+      where grantee = 'authenticated' and table_schema = 'public'
+        and privilege_type in ('TRUNCATE', 'REFERENCES', 'TRIGGER')
+    ),
+    'authenticated holds no TRUNCATE, REFERENCES or TRIGGER on any table');
+
+  -- The append-only guarantee, asserted at the grant layer rather than only
+  -- through the absence of a policy.
+  perform test_assert(
+    not exists (
+      select 1 from information_schema.table_privileges
+      where grantee = 'authenticated' and table_name = 'activity_log'
+        and privilege_type in ('UPDATE', 'DELETE')
+    ),
+    'authenticated cannot even attempt an UPDATE or DELETE on the activity log');
+
+  perform test_assert(
+    has_table_privilege('authenticated', 'public.activity_log', 'insert')
+    and has_table_privilege('authenticated', 'public.opportunity_watch', 'select'),
+    'the grants the app actually needs survived the revoke');
 end;
 $$;
 
