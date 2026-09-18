@@ -2,7 +2,13 @@ import { NextResponse, type NextRequest } from "next/server";
 import { createServerClient } from "@supabase/ssr";
 
 // Paths a signed-out visitor is allowed to reach.
-const PUBLIC_PATHS = ["/login", "/auth/callback", "/auth/confirm", "/auth/error"];
+const PUBLIC_PATHS = [
+  "/login",
+  "/auth/callback",
+  "/auth/confirm",
+  "/auth/finish",
+  "/auth/error",
+];
 
 export async function updateSession(request: NextRequest) {
   let response = NextResponse.next({ request });
