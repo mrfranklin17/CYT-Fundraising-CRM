@@ -6,6 +6,11 @@
     "skipLibCheck": true,
     "strict": true,
     "noEmit": true,
+    // Node's built-in test runner strips types rather than compiling, so a
+    // relative import must name the .ts file it actually loads. Safe here
+    // because nothing in this project emits from tsc — Next compiles the app
+    // and `tsc --noEmit` only typechecks.
+    "allowImportingTsExtensions": true,
     "esModuleInterop": true,
     "module": "esnext",
     "moduleResolution": "bundler",

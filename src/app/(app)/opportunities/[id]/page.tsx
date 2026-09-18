@@ -14,10 +14,12 @@ import {
   APPLICATION_STATUS_LABELS,
   OPPORTUNITY_STATUS_LABELS,
   canWrite,
+  watchNeedsAttention,
   type Application,
   type Opportunity,
+  type OpportunityWatch,
 } from "@/lib/types";
-import { markVerified, startApplication } from "../actions";
+import { acknowledgeWatch, markVerified, startApplication } from "../actions";
 
 export const metadata: Metadata = { title: "Opportunity · Grantboard" };
 
@@ -50,6 +52,14 @@ export default async function OpportunityDetailPage({
     "id" | "title" | "status" | "amount_requested" | "submitted_at"
   >[];
 
+  const { data: watch } = await supabase
+    .from("opportunity_watch")
+    .select("*")
+    .eq("opportunity_id", opportunity.id)
+    .maybeSingle<OpportunityWatch>();
+
+  const pageChanged = watchNeedsAttention(watch);
+
   const urgency = urgencyOf(opportunity.deadline);
   const writer = canWrite(session.role);
 
@@ -76,6 +86,44 @@ export default async function OpportunityDetailPage({
           ) : null}
         </div>
       </div>
+
+      {pageChanged && watch ? (
+        <div className="banner banner--change" role="status">
+          <h2>{opportunity.funder_name}&rsquo;s page changed since anyone read it</h2>
+          <p>
+            The weekly check found different text at this URL on{" "}
+            {formatDate(watch.last_changed_at)}. It does not read the page, so it
+            cannot tell you <em>what</em> changed &mdash; open it and see. If the
+            deadline moved, correct it there and verify it here.
+          </p>
+          {writer ? (
+            <form action={acknowledgeWatch}>
+              <input type="hidden" name="opportunity_id" value={opportunity.id} />
+              <button type="submit" className="btn btn--ghost btn--small">
+                I&rsquo;ve re-read the page
+              </button>
+            </form>
+          ) : (
+            <p className="small muted">
+              Staff can clear this once they have re-read it.
+            </p>
+          )}
+        </div>
+      ) : null}
+
+      {watch?.last_error && watch.consecutive_failures > 0 ? (
+        <div className="banner banner--warn" role="status">
+          <h2>The weekly check could not reach this page</h2>
+          <p>
+            {watch.consecutive_failures === 1
+              ? "The last attempt failed"
+              : `The last ${watch.consecutive_failures} attempts failed`}
+            : {watch.last_error} A grant page that has moved or been taken down
+            is worth opening by hand &mdash; a discontinued program is a deadline
+            change in disguise.
+          </p>
+        </div>
+      ) : null}
 
       {!opportunity.verified ? (
         <div className="banner banner--warn" role="status">
@@ -138,6 +186,16 @@ export default async function OpportunityDetailPage({
               ) : (
                 "—"
               )}
+              <br />
+              <span className="small muted">
+                {!opportunity.url
+                  ? "No URL, so the weekly check has nothing to watch."
+                  : !watch?.last_checked_at
+                    ? "Not checked yet — the weekly run will pick it up."
+                    : `Checked weekly · last looked ${formatTimestamp(
+                        watch.last_checked_at,
+                      )}`}
+              </span>
             </dd>
           </div>
           <div>

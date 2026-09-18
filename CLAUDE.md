@@ -33,6 +33,40 @@ uncertain, because the second one gets checked and the first one gets planned
 around. The same applies to `eligibility`: it holds the funder's own words,
 quoted. Never summarize into that column, and never let a model paraphrase it.
 
+## The weekly watcher
+
+`.github/workflows/watch.yml` calls `POST /api/cron/scan` once a week. It
+re-fetches the URL behind each tracked opportunity, hashes the page's extracted
+text, and flags the ones that differ from last time.
+
+It exists because of the standing rule above, not in tension with it. The rule
+says a stale deadline must not be quietly replaced with a plausible one, which
+leaves an obvious gap: nothing was telling anyone a deadline had gone stale.
+The watcher closes that gap in the only way that does not reintroduce the
+problem — by raising a flag instead of producing a date.
+
+So it reports *that* a page changed and never *what* it now says. It does not
+parse deadlines, does not read eligibility, and does not call a model. There is
+no code path from a fetched page to an `opportunities` column, and there should
+never be one. `ANTHROPIC_API_KEY` is still read in `/api/draft` and nowhere
+else.
+
+**There is still no service-role client.** The watcher signs in as a machine
+account — a real `auth.users` row registered in `watch_agents` — so its queries
+run under RLS like anyone's. It has deliberately **no membership**, and that is
+the whole enforcement mechanism: the narrowest human role that can create an
+opportunity is `staff`, and `staff` can also set `verified`. Giving a fetcher
+that combination is precisely the failure the standing rule exists to prevent.
+Without a membership it cannot write to `opportunities` at all, and cannot read
+applications, drafts, financials, contacts or the answer library.
+
+A trigger also stops the watcher writing `acknowledged_at`. A watcher that
+could clear its own flag would be indistinguishable from one that never raised
+it.
+
+If you extend this, the test to watch is the one named after its own purpose:
+*the watcher CANNOT set verified, which is the whole point of it.*
+
 ## Role model
 
 Three roles, as a Postgres enum (`org_role`):
@@ -72,6 +106,28 @@ shipped callable by `anon`. The harness had no such default privileges, so the
 suite showed clean; Supabase's own linter caught it against a live project.
 `0002_harden_function_grants.sql` is the fix, and the harness now replicates the
 default privileges so the assertions actually bite.
+
+It happened a second time, in the same direction, when `0004` was added. The
+harness replicated Supabase's default privileges for *functions* but not for
+*tables* — and Supabase grants ALL privileges on every new `public` table to
+`anon` and `authenticated` as it is created. So `0001`'s carefully narrow
+grants were additions to a full grant rather than a description of it, and two
+intentions had been silently lost in the live project:
+
+- `activity_log` was granted `insert` only, because it is append-only. In
+  production `authenticated` also held `update` and `delete` on it. Nothing
+  could actually be rewritten — there is no update or delete policy, so those
+  statements matched zero rows — but the append-only guarantee was resting on
+  one layer instead of two.
+- `TRUNCATE` was never intended anywhere, and `authenticated` held it on all
+  twelve tables. **`TRUNCATE` is not subject to row-level security**, so it is
+  not something a policy can contain.
+
+`0004` restates the whole grant block to fix both, and the harness now
+replicates table default privileges so the assertions covering it can fail.
+The test that caught it was an existing one — *nobody can rewrite the activity
+log* — which had been passing because of a grant-level rejection that only ever
+existed in the harness.
 
 When you add something to the harness, ask which direction the inaccuracy runs.
 Too permissive produces false alarms you will notice. Too restrictive produces
@@ -147,9 +203,13 @@ feature.
 - Draft editor: per-question drafting, draft-all-blanks, text export
 - Answer library, editable by staff
 - `POST /api/draft`
+- Weekly funder-page watcher: `watch_agents`, `opportunity_watch`, machine-account
+  auth, `POST /api/cron/scan`, callboard and detail banners
+  (`supabase/migrations/0004_page_watch.sql`, `.github/workflows/watch.yml`)
 - CI (`.github/workflows/ci.yml`): typecheck + build, and a Postgres job that
   applies the migration and seed to a throwaway database and asserts the
-  policies (`supabase/tests/`, or `npm run test:db` locally)
+  policies (`supabase/tests/`, or `npm run test:db` locally), plus unit tests for
+  the watcher's change detection on Node's own runner (`npm run test:unit`)
 
 ## Not built
 
@@ -163,6 +223,12 @@ feature.
   README).
 - Org switcher. `requireSession()` returns the user's first membership. When a
   second organization joins, that function is where the switcher goes.
+- Opportunity *discovery*. The watcher only re-checks funders already in the
+  pipeline; nothing finds new ones. The intended shape is a separate candidates
+  inbox that staff promote from, fed by structured sources (Grants.gov,
+  ProPublica's 990 API) — never by a model reading a page. Anything auto-created
+  must land `verified = false`, `deadline_estimated = true`, with `eligibility`
+  left null unless it is a verbatim quote captured with its source URL.
 - Per-funder question templates. New applications get a generic starter set
   from `DEFAULT_QUESTIONS`; staff edit the prompts to match the real portal.
 

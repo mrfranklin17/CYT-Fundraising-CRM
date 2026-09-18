@@ -4,7 +4,12 @@ import OpportunityStrip from "@/components/OpportunityStrip";
 import { requireSession } from "@/lib/session";
 import { createClient } from "@/lib/supabase/server";
 import { daysUntil, money } from "@/lib/format";
-import { canWrite, type Opportunity } from "@/lib/types";
+import {
+  canWrite,
+  watchNeedsAttention,
+  type Opportunity,
+  type OpportunityWatch,
+} from "@/lib/types";
 
 export const metadata: Metadata = { title: "Callboard · Grantboard" };
 
@@ -41,6 +46,22 @@ export default async function CallboardPage() {
 
   const unverified = open.filter((o) => !o.verified);
 
+  // The weekly watcher's findings. Read separately rather than joined so that a
+  // watch table that is empty — nothing scheduled yet, or a brand new org —
+  // simply produces no banner instead of changing how opportunities load.
+  const { data: watchRows } = await supabase
+    .from("opportunity_watch")
+    .select("opportunity_id, last_changed_at, acknowledged_at")
+    .eq("org_id", session.orgId);
+
+  const changedSinceRead = ((watchRows ?? []) as Pick<
+    OpportunityWatch,
+    "opportunity_id" | "last_changed_at" | "acknowledged_at"
+  >[])
+    .filter((w) => watchNeedsAttention(w))
+    .map((w) => opportunities.find((o) => o.id === w.opportunity_id))
+    .filter((o): o is Opportunity => Boolean(o));
+
   return (
     <>
       <div className="page-head">
@@ -52,6 +73,24 @@ export default async function CallboardPage() {
           funder&rsquo;s page.
         </p>
       </div>
+
+      {changedSinceRead.length > 0 ? (
+        <div className="banner banner--change" role="status">
+          <h2>
+            {changedSinceRead.length === 1
+              ? "1 funder has changed their page since anyone read it"
+              : `${changedSinceRead.length} funders have changed their pages since anyone read them`}
+          </h2>
+          <p>
+            {changedSinceRead.map((o) => o.funder_name).join(", ")} —{" "}
+            the weekly check found different text at{" "}
+            {changedSinceRead.length === 1 ? "this URL" : "these URLs"}. It does
+            not read the page, so it cannot say what changed. Open{" "}
+            {changedSinceRead.length === 1 ? "it" : "them"} and see whether a
+            deadline moved.
+          </p>
+        </div>
+      ) : null}
 
       {unverified.length > 0 ? (
         <div className="banner banner--warn" role="status">

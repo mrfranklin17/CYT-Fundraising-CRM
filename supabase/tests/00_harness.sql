@@ -35,6 +35,14 @@ grant anon, authenticated, service_role to current_user;
 -- caught by Supabase's linter against a live project instead.
 alter default privileges in schema public grant execute on functions to anon, authenticated;
 
+-- The same applies to TABLES, and this one is easier to miss because RLS hides
+-- its effect: every table created in `public` is granted to anon and
+-- authenticated automatically. RLS still decides the rows, so a policy written
+-- `to authenticated` keeps anon out regardless — but the grant is real, and
+-- 0001's "anon is granted nothing" was only true of the harness until this line
+-- existed. Replicating it is what lets the assertions below actually bite.
+alter default privileges in schema public grant all on tables to anon, authenticated;
+
 create schema if not exists auth;
 
 create table if not exists auth.users (

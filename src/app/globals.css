@@ -634,6 +634,19 @@ main.wrap {
   border-left-color: var(--brand);
 }
 
+/* The funder's page changed since anyone read it.
+   Brass, not curtain red: this is the same claim the "estimated date" flag
+   makes — something here has not been checked by a person — and it should read
+   as the same kind of thing. Red is reserved for a deadline that is closing. */
+.banner--change {
+  border-left-color: var(--brass);
+  background: var(--brass-wash);
+}
+
+.banner--change form {
+  margin-top: 0.75rem;
+}
+
 .banner--error {
   border-left-color: var(--curtain);
   background: var(--curtain-wash);

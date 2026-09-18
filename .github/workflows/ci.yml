@@ -31,6 +31,11 @@ jobs:
       - name: Typecheck
         run: npx tsc --noEmit
 
+      # Change detection for the funder-page watcher. Node's own test runner,
+      # so this adds no dependency to the project.
+      - name: Unit tests
+        run: npm run test:unit
+
       # No Supabase or Anthropic credentials are needed to build: every page
       # that touches them is server-rendered on demand, and the env is read at
       # request time rather than at build time.

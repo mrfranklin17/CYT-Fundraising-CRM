@@ -214,3 +214,44 @@ export async function startApplication(formData: FormData) {
   revalidatePath(`/opportunities/${opportunity.id}`);
   redirect(`/applications/${application.id}`);
 }
+
+/**
+ * Record that a person has re-read a funder's page after the watcher flagged it.
+ *
+ * This clears the flag and nothing else. It deliberately does not touch
+ * `verified` or `deadline_estimated`: "I looked at the page" and "I confirmed
+ * the deadline" are different claims, and collapsing them is how a record ends
+ * up marked verified because somebody glanced at it. Confirming the deadline is
+ * the separate Verify action, which asks explicitly.
+ */
+export async function acknowledgeWatch(formData: FormData) {
+  const session = await requireSession();
+  requireWriter(session.role);
+
+  const id = String(formData.get("opportunity_id") ?? "");
+  if (!id) throw new Error("Missing opportunity id.");
+
+  const supabase = await createClient();
+  const { error } = await supabase
+    .from("opportunity_watch")
+    .update({
+      acknowledged_at: new Date().toISOString(),
+      acknowledged_by: session.userId,
+    })
+    .eq("opportunity_id", id)
+    .eq("org_id", session.orgId);
+
+  if (error) throw error;
+
+  await logActivity(supabase, {
+    orgId: session.orgId,
+    userId: session.userId,
+    entityType: "opportunity",
+    entityId: id,
+    action: "reread_funder_page",
+  });
+
+  revalidatePath("/");
+  revalidatePath("/opportunities");
+  revalidatePath(`/opportunities/${id}`);
+}

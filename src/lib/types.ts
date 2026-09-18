@@ -84,6 +84,37 @@ export type Opportunity = {
   updated_at: string;
 };
 
+/**
+ * What the weekly watcher saw when it last fetched a funder's page.
+ *
+ * A row needs a person's attention while `last_changed_at` is set and
+ * `acknowledged_at` is missing or older than it — see `watchNeedsAttention`.
+ * The watcher records that the page changed and deliberately records nothing
+ * about what it now says: reading the new date is a person's job.
+ */
+export type OpportunityWatch = {
+  opportunity_id: string;
+  org_id: string;
+  url: string;
+  content_hash: string | null;
+  content_length: number | null;
+  last_checked_at: string | null;
+  last_changed_at: string | null;
+  last_status: number | null;
+  last_error: string | null;
+  consecutive_failures: number;
+  acknowledged_at: string | null;
+  acknowledged_by: string | null;
+};
+
+export function watchNeedsAttention(
+  watch: Pick<OpportunityWatch, "last_changed_at" | "acknowledged_at"> | null | undefined,
+): boolean {
+  if (!watch?.last_changed_at) return false;
+  if (!watch.acknowledged_at) return true;
+  return new Date(watch.acknowledged_at) < new Date(watch.last_changed_at);
+}
+
 export type Application = {
   id: string;
   org_id: string;
